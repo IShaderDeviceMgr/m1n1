@@ -313,6 +313,39 @@ static int dt_set_chosen(void)
     if (fdt_setprop(dt, node, "asahi,m1n1-stage2-version", m1n1_version, strlen(m1n1_version) + 1))
         bail("FDT: couldn't set asahi,m1n1-stage2-version\n");
 
+    if (adt) {
+        int anode = adt_path_offset(adt, "/chosen");
+        if (anode >= 0) {
+            u32 uuid_len = 0;
+            const void *prop = adt_getprop(adt, anode, "apfs-preboot-uuid", &uuid_len);
+            if (!prop)
+                prop = adt_getprop(adt, anode, "boot-uuid", &uuid_len);
+
+            if (prop && uuid_len > 0) {
+                char uuid_str[37];
+                if (uuid_len == 16) {
+                    const u8 *b = prop;
+                    snprintf(uuid_str, sizeof(uuid_str),
+                             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+                             b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+                    if (fdt_setprop(dt, node, "apfs-preboot-uuid", uuid_str, sizeof(uuid_str)) < 0)
+                        printf("FDT: warning: couldn't set apfs-preboot-uuid\n");
+                    else
+                        printf("FDT: apfs-preboot-uuid = '%s'\n", uuid_str);
+                } else if (uuid_len == 36 || uuid_len == 37) {
+                    char str_buf[37];
+                    memcpy(str_buf, prop, 36);
+                    str_buf[36] = '\0';
+                    if (fdt_setprop(dt, node, "apfs-preboot-uuid", str_buf, sizeof(str_buf)) < 0)
+                        printf("FDT: warning: couldn't set apfs-preboot-uuid\n");
+                    else
+                        printf("FDT: apfs-preboot-uuid = '%s'\n", str_buf);
+                }
+            }
+        }
+    }
+
     if (dt_set_rng_seed_sep(node)) {
         if (dt_set_rng_seed_adt(node))
             bail("FDT: couldn't set random seed");
