@@ -5,6 +5,7 @@
 #include "dockchannel_uart.h"
 #include "exception.h"
 #include "firmware.h"
+#include "s2r.h"
 #include "smp.h"
 #include "string.h"
 #include "types.h"
@@ -218,6 +219,17 @@ void _start_c(void *boot_args, void *base)
 /* Secondary SMP core boot */
 void _cpu_reset_c(void *stack)
 {
+    /*
+     * S2R wake: whatever suspended the system may have powered off the UART,
+     * and uart_putbyte() spins on it forever. No output before s2r_resume()
+     * has armed the watchdog.
+     */
+    if (is_boot_cpu() && s2r_resume_pending()) {
+        init_cpu();
+        exception_initialize();
+        s2r_resume();
+    }
+
     if (!is_boot_cpu())
         uart_puts("RVBAR entry on secondary CPU");
     else
@@ -237,6 +249,8 @@ void _cpu_reset_c(void *stack)
 
     if (!is_boot_cpu())
         smp_secondary_entry();
+    else if (s2r_resume_pending())
+        s2r_resume();
     else
         m1n1_main();
 }

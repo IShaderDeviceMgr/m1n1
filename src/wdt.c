@@ -57,3 +57,14 @@ void wdt_reboot(void)
     write32(wdt_base + WDT_COUNT, 0);
     write32(wdt_base + WDT_CTL, 4);
 }
+
+/* Reboot after `seconds` unless disarmed (24 MHz reference clock). */
+void wdt_arm(u32 seconds)
+{
+    if (!wdt_base)
+        return;
+
+    write32(wdt_base + WDT_ALARM, seconds * 24000000);
+    write32(wdt_base + WDT_COUNT, 0);
+    write32(wdt_base + WDT_CTL, 4);
+}

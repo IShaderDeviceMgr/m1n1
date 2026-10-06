@@ -16,6 +16,7 @@ void smp_secondary_prep_el3(void);
 int smp_init(void);
 void smp_start_secondaries(void);
 void smp_stop_secondaries(bool deep_sleep);
+int smp_get_rvbar(int cpu, u64 *initial, u64 *now);
 
 #define smp_call0(i, f)          smp_call4(i, f, 0, 0, 0, 0)
 #define smp_call1(i, f, a)       smp_call4(i, f, a, 0, 0, 0)

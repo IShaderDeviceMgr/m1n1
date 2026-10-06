@@ -709,6 +709,47 @@ static bool rtkit_switch_power_state(rtkit_dev_t *rtk, enum rtkit_power_state ta
     return true;
 }
 
+/*
+ * Tell the IOP which power state the AP is going to, and wait for it to echo
+ * the state back. Unlike rtkit_sleep() this leaves the IOP running: macOS
+ * does this for the SMC around system sleep (RTBuddy _signalApPowerGated:
+ * sleep = 0x201, on = 0x20), and the SMC has to stay up to wake the AP.
+ */
+bool rtkit_set_ap_power(rtkit_dev_t *rtk, u32 state, u32 timeout_us)
+{
+    struct asc_message msg;
+
+    if (rtk->crashed)
+        return false;
+
+    msg.msg0 = FIELD_PREP(MGMT_TYPE, MGMT_MSG_AP_PWR_STATE) | FIELD_PREP(MGMT_PWR_STATE, state);
+    msg.msg1 = RTKIT_EP_MGMT;
+    if (!asc_send(rtk->asc, &msg)) {
+        rtkit_printf("unable to send AP power message\n");
+        return false;
+    }
+
+    u64 timeout = timeout_calculate(timeout_us);
+    while ((u32)rtk->ap_power != state) {
+        struct rtkit_message rtk_msg;
+        int ret = rtkit_recv(rtk, &rtk_msg);
+
+        if (ret > 0) {
+            rtkit_printf("unexpected message to endpoint 0x%02x during AP power change: %lx\n",
+                         rtk_msg.ep, rtk_msg.msg);
+        } else if (ret < 0) {
+            rtkit_printf("IOP died during AP power change\n");
+            return false;
+        }
+        if (timeout_expired(timeout)) {
+            rtkit_printf("AP power state 0x%x not acknowledged (at 0x%x)\n", state, rtk->ap_power);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool rtkit_quiesce(rtkit_dev_t *rtk)
 {
     return rtkit_switch_power_state(rtk, RTKIT_POWER_QUIESCED);

@@ -64,6 +64,10 @@ static bool smp_initialized = false;
 static u64 cpu_start_base;
 static struct cpu_info cpu_info[MAX_CPUS];
 
+// Raw RVBAR (impl_reg) of each CPU as iBoot left it, before m1n1 writes any
+static bool rvbar_captured = false;
+static u64 rvbar_initial[MAX_CPUS];
+
 // Used from start.S to find the correct stack after the first entry
 struct smp_reset_stack {
     u64 mpidr;
@@ -434,6 +438,11 @@ void smp_start_secondaries(void)
     if (!smp_initialized)
         return;
 
+    for (int i = 0; i < MAX_CPUS; i++)
+        if (cpu_info[i].valid)
+            rvbar_initial[i] = read64(cpu_info[i].impl_reg);
+    rvbar_captured = true;
+
     for (int i = 0; i < MAX_CPUS; i++) {
         struct cpu_info *cpu = &cpu_info[i];
 
@@ -454,6 +463,16 @@ void smp_start_secondaries(void)
 
         smp_start_cpu(i, cpu);
     }
+}
+
+int smp_get_rvbar(int cpu, u64 *initial, u64 *now)
+{
+    if (cpu < 0 || cpu >= MAX_CPUS || !cpu_info[cpu].valid)
+        return -1;
+
+    *initial = rvbar_captured ? rvbar_initial[cpu] : 0;
+    *now = read64(cpu_info[cpu].impl_reg);
+    return rvbar_captured ? 1 : 0;
 }
 
 void smp_stop_secondaries(bool deep_sleep)

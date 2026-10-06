@@ -19,6 +19,7 @@
 #include "memory.h"
 #include "pcie.h"
 #include "pmgr.h"
+#include "s2r.h"
 #include "sep.h"
 #include "sio.h"
 #include "smp.h"
@@ -344,6 +345,38 @@ static int dt_set_chosen(void)
                 }
             }
         }
+    }
+
+    /*
+     * Sleep research (S2R): an S2R wake restarts the boot CPU at its RVBAR, so
+     * record where RVBAR points and whether it is locked, and where m1n1 itself
+     * sits, to compare against the memory Linux uses. Raw impl_reg values, in
+     * m1n1 CPU index order; bit 0 is the lock bit.
+     */
+    {
+        fdt64_t initial[MAX_CPUS], now[MAX_CPUS];
+        int count = 0, captured = 0;
+
+        for (int i = 0; i < MAX_CPUS; i++) {
+            u64 a, b;
+            int ret = smp_get_rvbar(i, &a, &b);
+            if (ret < 0)
+                continue;
+            captured = ret;
+            initial[count] = cpu_to_fdt64(a);
+            now[count++] = cpu_to_fdt64(b);
+            if (i == boot_cpu_idx)
+                printf("FDT: boot CPU %d RVBAR initial 0x%lx now 0x%lx\n", i, a, b);
+        }
+
+        if (fdt_setprop_u64(dt, node, "asahi,m1n1-base", (u64)_base) ||
+            fdt_setprop_u64(dt, node, "asahi,m1n1-top", cur_boot_args.top_of_kernel_data) ||
+            fdt_setprop_u32(dt, node, "asahi,boot-cpu", boot_cpu_idx) ||
+            fdt_setprop_u64(dt, node, "asahi,s2r-record", s2r_record_addr()) ||
+            (count && fdt_setprop(dt, node, "asahi,rvbar", now, count * sizeof(now[0]))) ||
+            (count && captured &&
+             fdt_setprop(dt, node, "asahi,rvbar-initial", initial, count * sizeof(initial[0]))))
+            printf("FDT: warning: couldn't set RVBAR info\n");
     }
 
     if (dt_set_rng_seed_sep(node)) {

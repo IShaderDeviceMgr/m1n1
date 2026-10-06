@@ -39,6 +39,12 @@ int uart_init(void)
     return 0;
 }
 
+/* Stop all UART output, e.g. when the UART may be powered off (S2R wake) */
+void uart_detach(void)
+{
+    uart_base = 0;
+}
+
 void uart_putbyte(u8 c)
 {
     if (!uart_base)

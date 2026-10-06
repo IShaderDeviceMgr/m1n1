@@ -8,6 +8,7 @@
 int uart_init(void);
 
 void uart_putbyte(u8 c);
+void uart_detach(void);
 u8 uart_getbyte(void);
 
 void uart_putchar(u8 c);

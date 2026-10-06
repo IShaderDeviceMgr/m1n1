@@ -90,7 +90,7 @@ static void smc_send(smc_dev_t *smc, u64 message)
     rtkit_send(smc->rtkit, &msg);
 }
 
-static int smc_cmd(smc_dev_t *smc, u64 message)
+static int smc_cmd_result(smc_dev_t *smc, u64 message, u64 *reply)
 {
     u8 id = smc->msgid++ & 0xF;
     assert(!smc->outstanding[id]);
@@ -103,6 +103,8 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
         smc_work(smc);
 
     u64 result = smc->ret[id];
+    if (reply)
+        *reply = result;
     u32 ret = FIELD_GET(SMC_RESULT_RESULT, result);
     if (ret) {
         printf("SMC: smc_cmd[0x%x] failed: %u\n", id, ret);
@@ -110,6 +112,11 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
     }
 
     return 0;
+}
+
+static int smc_cmd(smc_dev_t *smc, u64 message)
+{
+    return smc_cmd_result(smc, message, NULL);
 }
 
 void smc_shutdown(smc_dev_t *smc)
@@ -178,4 +185,40 @@ int smc_write_u32(smc_dev_t *smc, u32 key, u32 value)
     msg |= FIELD_PREP(SMC_WRITE_KEY_KEY, key);
 
     return smc_cmd(smc, msg);
+}
+
+/* Values of up to 4 bytes come back in the reply, larger ones in shmem. */
+int smc_read(smc_dev_t *smc, u32 key, void *buf, size_t size)
+{
+    u64 reply;
+
+    if (!size || size > 255)
+        return -1;
+
+    u64 msg = FIELD_PREP(SMC_MSG_TYPE, SMC_READ_KEY);
+    msg |= FIELD_PREP(SMC_WRITE_KEY_SIZE, size);
+    msg |= FIELD_PREP(SMC_WRITE_KEY_KEY, key);
+
+    int ret = smc_cmd_result(smc, msg, &reply);
+    if (ret)
+        return ret;
+
+    if (size <= 4) {
+        u32 value = FIELD_GET(SMC_RESULT_VALUE, reply);
+        memcpy(buf, &value, size);
+    } else {
+        memcpy(buf, smc->shmem, size);
+    }
+
+    return 0;
+}
+
+int smc_read_u32(smc_dev_t *smc, u32 key, u32 *value)
+{
+    return smc_read(smc, key, value, sizeof(*value));
+}
+
+bool smc_set_ap_power(smc_dev_t *smc, u32 state)
+{
+    return rtkit_set_ap_power(smc->rtkit, state, 1000000);
 }

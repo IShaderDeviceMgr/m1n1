@@ -168,6 +168,7 @@ OBJECTS := \
 	nvme.o \
 	payload.o \
 	pcie.o \
+	s2r.o \
 	pmgr.o \
 	proxy.o \
 	ringbuffer.o \

@@ -12,6 +12,10 @@
 #include "heapblock.h"
 #include "kboot.h"
 #include "mitigations.h"
+#include "s2r.h"
+#include "iodev.h"
+#include "uartproxy.h"
+#include "usb.h"
 #include "smp.h"
 #include "utils.h"
 
@@ -176,6 +180,7 @@ static char *chosen[MAX_CHOSEN_VARS];
 #endif
 
 static bool enable_tso = false;
+static long proxy_wait = 0;
 
 static bool check_var(u8 **p)
 {
@@ -205,6 +210,10 @@ static bool check_var(u8 **p)
         mitigations_configure(val);
     } else if (IS_VAR("tso=")) {
         enable_tso = val[0] == '1';
+    } else if (IS_VAR("proxywait=")) {
+        proxy_wait = atol(val);
+    } else if (IS_VAR("s2rtest=")) {
+        s2r_configure(val);
     } else {
         printf("Unknown variable %s\n", *p);
     }
@@ -288,6 +297,39 @@ bool payload_logo(void **custom_128, void **custom_256)
     return false;
 }
 
+/*
+ * proxywait=<seconds>: before booting the payloads, give a USB proxy host
+ * that long to connect (e.g. for the hypervisor); otherwise boot normally.
+ * As main.c's EARLY_PROXY_TIMEOUT wait, without its sip0/display gate.
+ */
+static void proxy_wait_run(void)
+{
+    if (!proxy_wait)
+        return;
+
+    usb_init();
+    usb_iodev_init();
+    printf("proxywait: waiting %lds for a proxy connection... ", proxy_wait);
+    for (long i = 0; i < proxy_wait * 100; i++) {
+        for (int j = 0; j < USB_IODEV_COUNT; j++) {
+            iodev_id_t iodev = IODEV_USB0 + j;
+
+            if (!(iodev_get_usage(iodev) & USAGE_UARTPROXY))
+                continue;
+
+            usb_iodev_vuart_setup(iodev);
+            iodev_handle_events(iodev);
+            if (iodev_can_write(iodev) || iodev_can_write(IODEV_USB_VUART)) {
+                printf(" connected\n");
+                uartproxy_run(NULL);
+                return;
+            }
+        }
+        mdelay(10);
+    }
+    printf(" timed out, booting\n");
+}
+
 int payload_run(void)
 {
     const char *target = adt_getprop(adt, 0, "target-type", NULL);
@@ -308,6 +350,9 @@ int payload_run(void)
 
     while (p)
         p = load_one_payload(p, 0);
+
+    s2r_test();
+    proxy_wait_run();
 
     if (chainload_spec) {
         return chainload_load(chainload_spec, chosen, chosen_cnt);
