@@ -2302,6 +2302,46 @@ static int dt_setup_sio(void)
     return 0;
 }
 
+/*
+ * AVE2 video encoder: iBoot preloads the firmware (IM4P type 'avef') and
+ * describes it in the ADT ave0 node ("pre-loaded", "segment-ranges").
+ * Reserve the segments for the kernel and forward the raw segment-ranges
+ * so their iova/remap fields can be inspected. Never fails the boot: the
+ * encoder is optional.
+ */
+static int dt_setup_ave(void)
+{
+    int fdt_node = fdt_path_offset(dt, "ave");
+    if (fdt_node < 0)
+        return 0;
+
+    int node = adt_path_offset(adt, "/arm-io/ave0");
+    if (node < 0) {
+        printf("ADT: /arm-io/ave0 not found\n");
+        return 0;
+    }
+
+    if (!adt_getprop(adt, node, "pre-loaded", NULL)) {
+        printf("ADT: ave0 firmware not pre-loaded by iBoot\n");
+        return 0;
+    }
+
+    u32 seg_len;
+    const void *seg = adt_getprop(adt, node, "segment-ranges", &seg_len);
+    if (!seg || !seg_len) {
+        printf("ADT: ave0 has no segment-ranges\n");
+        return 0;
+    }
+
+    if (fdt_setprop(dt, fdt_node, "apple,segment-ranges", seg, seg_len))
+        printf("FDT: couldn't set 'ave.apple,segment-ranges'\n");
+
+    if (dt_reserve_asc_firmware("/arm-io/ave0", NULL, "ave", false, 0))
+        printf("FDT: failed to reserve ave firmware\n");
+
+    return 0;
+}
+
 struct isp_segment_ranges {
     u64 phys;
     u64 iova;
@@ -2930,6 +2970,8 @@ int kboot_prepare_dt(void *fdt)
     if (dt_reserve_asc_firmware("/arm-io/isp", "/arm-io/isp0", "isp", false, isp_iova_base()))
         return -1;
     if (dt_set_isp_fwdata())
+        return -1;
+    if (dt_setup_ave())
         return -1;
     if (dt_set_pmgr())
         return -1;
